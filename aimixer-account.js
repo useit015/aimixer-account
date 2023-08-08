@@ -10,6 +10,10 @@ const https = require('https');
 const cors = require('cors');
 const fs = require('fs');
 const mysql = require('mysql2');
+const bcrypt = require("bcrypt");
+const luxon = require('luxon');
+const { v4: uuidv4 } = require('uuid');
+
 
 const { MYSQL_HOST, MYSQL_USER, MYSQL_PASSWORD, MYSQL_DATABASE } = process.env;
 
@@ -29,22 +33,15 @@ const mysqlOptions = {
 
 const pool = mysql.createPool(mysqlOptions);
 
-
 const query = q => {
   return new Promise((resolve, reject) => {
     pool.query(q, function(err, rows, fields) {
+      console.error(err);
       if (err) return resolve(false);
       resolve(rows)
     });
   })
 }
-
-const dbTest = async () => {
-  const result = await query('SHOW DATABASES');
-  console.log(result);
-}
-
-dbTest();
 
 const app = express();
 app.use(express.static('public'));
@@ -56,9 +53,32 @@ app.get('/', (req, res) => {
 });
 
 const handleRegister = async (req, res) => {
-  const { email, username, password, isCorporateAccount } = req.body;
+  let { email, username, password, isCorporateAccount } = req.body;
 
   if (!email || !username || !password || typeof isCorporateAccount === 'undefined') return res.status(400).json('bad request');
+
+  try {
+    const loc = email.indexOf('@');
+    const domain = email.substr(loc);
+   
+    email = mysql.escape(email);
+    username = mysql.escape(username);
+    password = await bcrypt.hash(password, 10);
+    const date = luxon.DateTime.now().plus({days: 30}).toISODate();
+    console.log('domain', domain);
+    let q = `INSERT INTO accounts (id, email, username, password, domain, expiration) VALUES ('${uuidv4()}', ${email}, ${username}, '${password}', '${domain}', '${date}')`;
+    
+    let result = await query(q);
+    if (result !== false) {
+      if (isCorporateAccount) await query(`INSERT INTO corporate_domains (domain) VALUES ('${domain}')`);
+      
+    }
+  
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json(err);
+  }
+
 
   res.status(200).json('ok');
 }
