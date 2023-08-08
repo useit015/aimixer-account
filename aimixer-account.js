@@ -13,9 +13,10 @@ const mysql = require('mysql2');
 const bcrypt = require("bcrypt");
 const luxon = require('luxon');
 const { v4: uuidv4 } = require('uuid');
+const jwt = require('jsonwebtoken');
 
 
-const { MYSQL_HOST, MYSQL_USER, MYSQL_PASSWORD, MYSQL_DATABASE } = process.env;
+const { MYSQL_HOST, MYSQL_USER, MYSQL_PASSWORD, MYSQL_DATABASE, JWT_PASSWORD } = process.env;
 
 const mysqlOptions = {
   host: MYSQL_HOST,
@@ -61,18 +62,41 @@ const handleRegister = async (req, res) => {
     const loc = email.indexOf('@');
     const domain = email.substr(loc);
    
+    accountId = uuidv4();
     email = mysql.escape(email);
     username = mysql.escape(username);
     password = await bcrypt.hash(password, 10);
-    const date = luxon.DateTime.now().plus({days: 30}).toISODate();
+    const date = luxon.DateTime.now().plus({days: 90}).toISODate();
     console.log('domain', domain);
-    let q = `INSERT INTO accounts (id, email, username, password, domain, expiration) VALUES ('${uuidv4()}', ${email}, ${username}, '${password}', '${domain}', '${date}')`;
+    let q = `INSERT INTO accounts (id, email, username, password, domain, expiration) VALUES ('${accountId}', ${email}, ${username}, '${password}', '${domain}', '${date}')`;
     
     let result = await query(q);
+
+    /*
+     * If successful registration
+     */
     if (result !== false) {
       if (isCorporateAccount) await query(`INSERT INTO corporate_domains (domain) VALUES ('${domain}')`);
-      
+
+      const token = jwt.sign({
+        accountId, email, domain
+      }, JWT_PASSWORD, { expiresIn: '14 days' })
+
+      return res.status(200).json({status: 'success', token, server: 'api.aimixer.io'})
     }
+
+    /*
+     * Find out why registration was unsuccessful and send report
+     */
+
+    q = `SELECT email FROM accounts WHERE email = ${email}`;
+    result = await query(q);
+    if (result.length) return res.status(200).json({status: 'error', msg:'Email address already registered.'});
+
+    q = `SELECT username FROM accounts WHERE username = ${username}`;
+    result = await query(q);
+    if (result.length) return res.status(200).json({status: 'error', msg:'Username already exists. Please try another.'});
+
   
   } catch (err) {
     console.error(err);
@@ -80,7 +104,7 @@ const handleRegister = async (req, res) => {
   }
 
 
-  res.status(200).json('ok');
+  res.status(500).json('internal server error');
 }
 app.post('/register', (req, res) => handleRegister(req, res));
 
