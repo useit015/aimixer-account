@@ -79,7 +79,7 @@ const handleRegister = async (req, res) => {
       if (isCorporateAccount) await query(`INSERT INTO corporate_domains (domain) VALUES ('${domain}')`);
 
       const token = jwt.sign({
-        accountId, email, domain
+        accountId, email, username, domain
       }, JWT_PASSWORD, { expiresIn: '14 days' })
 
       return res.status(200).json({status: 'success', token, server: 'api.aimixer.io'})
@@ -103,10 +103,43 @@ const handleRegister = async (req, res) => {
     return res.status(500).json(err);
   }
 
-
   res.status(500).json('internal server error');
 }
+
+const handleLogin = async (req, res) => {
+  let { username, password } = req.body;
+
+  if (!username || !password) return res.status(400).json('bad request');
+
+  username = mysql.escape(username);
+
+  const q = `SELECT accountId, email, username, password, domain, expiration, server FROM accounts WHERE username=${username} || email=${username}`;
+
+  const result = await query(q);
+
+  if (!result.length) return res.status(200).json({status: 'error', msg: 'Account does not exist.'});
+
+  const expiration = result[0].expiration;
+  const today = luxon.DateTime().now().toISODate();
+
+  if (expiration < today) return res.status(200).json({status: 'expired', msg: 'Account has expired.'})
+
+  let verified = await bcrypt.compare(password, result[0].password);
+
+  if (!verified) return res.status(200).json({status: 'error', msg: 'Incorrect password.'});
+
+  const token = jwt.sign({
+    accountId: result[0].accountId,
+    email: result[0].email,
+    username: result[0].username,
+    domain: result[0].username,
+  }, JWT_PASSWORD, { expiresIn: '14 days' })
+
+  return res.status(200).json({status: 'success', token, server: 'api.aimixer.io'});
+}
+
 app.post('/register', (req, res) => handleRegister(req, res));
+app.post('/login', (req, res) => handleLogin(req, res));
 
 const httpsServer = https.createServer({
     key: fs.readFileSync(privateKeyPath),
