@@ -15,7 +15,6 @@ const luxon = require('luxon');
 const { v4: uuidv4 } = require('uuid');
 const jwt = require('jsonwebtoken');
 
-
 const { MYSQL_HOST, MYSQL_USER, MYSQL_PASSWORD, MYSQL_DATABASE, JWT_PASSWORD } = process.env;
 
 const mysqlOptions = {
@@ -113,14 +112,14 @@ const handleLogin = async (req, res) => {
 
   username = mysql.escape(username);
 
-  const q = `SELECT accountId, email, username, password, domain, expiration, server FROM accounts WHERE username=${username} || email=${username}`;
+  const q = `SELECT id, email, username, password, domain, expiration, server FROM accounts WHERE username=${username} OR email=${username}`;
 
   const result = await query(q);
 
   if (!result.length) return res.status(200).json({status: 'error', msg: 'Account does not exist.'});
 
   const expiration = result[0].expiration;
-  const today = luxon.DateTime().now().toISODate();
+  const today = luxon.DateTime.now().toISODate();
 
   if (expiration < today) return res.status(200).json({status: 'expired', msg: 'Account has expired.'})
 
@@ -128,14 +127,16 @@ const handleLogin = async (req, res) => {
 
   if (!verified) return res.status(200).json({status: 'error', msg: 'Incorrect password.'});
 
+  const {id, email, domain } = result[0];
+
   const token = jwt.sign({
-    accountId: result[0].accountId,
-    email: result[0].email,
-    username: result[0].username,
-    domain: result[0].username,
+    accountId: id,
+    email: email,
+    username: username,
+    domain: domain,
   }, JWT_PASSWORD, { expiresIn: '14 days' })
 
-  return res.status(200).json({status: 'success', token, server: 'api.aimixer.io'});
+  return res.status(200).json({status: 'success', token, server: 'api.aimixer.io', email, username, domain, accountId: id});
 }
 
 app.post('/register', (req, res) => handleRegister(req, res));
