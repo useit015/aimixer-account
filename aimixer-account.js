@@ -14,6 +14,7 @@ const bcrypt = require("bcrypt");
 const luxon = require('luxon');
 const { v4: uuidv4 } = require('uuid');
 const jwt = require('jsonwebtoken');
+const wp = require('./utils/wordpress')
 
 const { MYSQL_HOST, MYSQL_USER, MYSQL_PASSWORD, MYSQL_DATABASE, JWT_PASSWORD } = process.env;
 
@@ -105,10 +106,34 @@ const handleRegister = async (req, res) => {
   res.status(500).json('internal server error');
 }
 
+const pymntsAccess = async (username, password, res) => {
+  const wpToken = await wp.getJWT('delta.pymnts.com', username, password);
+  if (wpToken === false) return res.status(401).json('unauthorized');
+
+  const token = jwt.sign({
+    accountId: 'PYMNTS',
+    email: username,
+    username: username,
+    domain: '@pymnts.com',
+  }, JWT_PASSWORD, { expiresIn: '14 days' })
+
+  return res.status(200).json({status: 'success', token, server: 'api.aimixer.io', email: username, username, domain: '@pymnts.com', accountId: 'PYMNTS'});
+}
+
+const isPymntsAccount = username => {
+  const loc = username.indexOf('@');
+  if (loc === -1) return false;
+  const domain = username.substring(loc).toLowerCase();
+  if (domain === '@pymnts.com') return true;
+  return false;
+}
+
 const handleLogin = async (req, res) => {
   let { username, password } = req.body;
 
   if (!username || !password) return res.status(400).json('bad request');
+
+  if(isPymntsAccount(username)) return pymntsAccess(username, password, res);
 
   username = mysql.escape(username);
 
